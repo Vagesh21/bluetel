@@ -1,12 +1,103 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Play, Search, Clock } from 'lucide-react';
+import { Play, Search, Clock, Heart, MessageCircle, Send } from 'lucide-react';
 import { usePlayer } from '@/contexts/PlayerContext';
 import api from '@/lib/api';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import ShareButtons from '@/components/ShareButtons';
 
 const fadeUp = { initial: { opacity: 0, y: 20 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true }, transition: { duration: 0.5 } };
+
+function EpisodeEngagement({ episodeId }) {
+  const [engagement, setEngagement] = useState({ likes_count: 0, user_liked: false, comments: [], comments_count: 0 });
+  const [showComments, setShowComments] = useState(false);
+  const [comment, setComment] = useState({ name: '', email: '', text: '' });
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('blues_user_email') || '');
+
+  const fetchEngagement = useCallback(() => {
+    api.get(`/episodes/${episodeId}/engagement?email=${encodeURIComponent(userEmail)}`).then(r => setEngagement(r.data)).catch(() => {});
+  }, [episodeId, userEmail]);
+
+  useEffect(() => { fetchEngagement(); }, [fetchEngagement]);
+
+  const toggleLike = async () => {
+    if (!userEmail) { toast.error('Enter your email to like episodes'); setShowComments(true); return; }
+    try {
+      if (engagement.user_liked) {
+        await api.delete(`/episodes/${episodeId}/like?email=${encodeURIComponent(userEmail)}`);
+      } else {
+        await api.post(`/episodes/${episodeId}/like`, { email: userEmail });
+      }
+      fetchEngagement();
+    } catch {}
+  };
+
+  const handleComment = async (e) => {
+    e.preventDefault();
+    if (!comment.name || !comment.email || !comment.text) { toast.error('Fill all fields'); return; }
+    try {
+      await api.post(`/episodes/${episodeId}/comments`, comment);
+      toast.success('Comment posted');
+      localStorage.setItem('blues_user_email', comment.email);
+      setUserEmail(comment.email);
+      setComment({ ...comment, text: '' });
+      fetchEngagement();
+    } catch { toast.error('Failed to post comment'); }
+  };
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-4">
+        <button onClick={toggleLike} className={`flex items-center gap-1.5 text-xs transition-colors ${engagement.user_liked ? 'text-red-400' : 'text-gray-600 hover:text-red-400'}`} data-testid={`like-btn-${episodeId}`} aria-label="Like">
+          <Heart className={`w-3.5 h-3.5 ${engagement.user_liked ? 'fill-current' : ''}`} /> {engagement.likes_count}
+        </button>
+        <button onClick={() => setShowComments(!showComments)} className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-white transition-colors" data-testid={`comments-toggle-${episodeId}`}>
+          <MessageCircle className="w-3.5 h-3.5" /> {engagement.comments_count}
+        </button>
+        <ShareButtons title={`Listen to this episode`} className="ml-auto" />
+      </div>
+
+      {showComments && (
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 border-t border-white/5 pt-4">
+          {/* Comment form */}
+          <form onSubmit={handleComment} className="mb-4 space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <Input value={comment.name} onChange={(e) => setComment({ ...comment, name: e.target.value })} placeholder="Name" required
+                className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-name-${episodeId}`} />
+              <Input value={comment.email} onChange={(e) => { setComment({ ...comment, email: e.target.value }); setUserEmail(e.target.value); }} placeholder="Email" type="email" required
+                className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-email-${episodeId}`} />
+            </div>
+            <div className="flex gap-2">
+              <Textarea value={comment.text} onChange={(e) => setComment({ ...comment, text: e.target.value })} placeholder="Write a comment..." required rows={2}
+                className="bg-blues-bg border-white/10 text-white rounded-none text-xs resize-none flex-1" data-testid={`comment-text-${episodeId}`} />
+              <Button type="submit" className="bg-amber text-black hover:brightness-110 rounded-none h-auto px-3 self-end" data-testid={`comment-submit-${episodeId}`}>
+                <Send className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </form>
+
+          {/* Comments list */}
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            {engagement.comments.map((c) => (
+              <div key={c.id} className="text-xs" data-testid={`comment-${c.id}`}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-amber font-semibold">{c.name}</span>
+                  <span className="text-gray-700 font-mono">{c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</span>
+                </div>
+                <p className="text-gray-400">{c.text}</p>
+              </div>
+            ))}
+            {engagement.comments.length === 0 && <p className="text-gray-600 text-xs">No comments yet. Be the first!</p>}
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
 
 export default function PodcastShow() {
   const { slug } = useParams();
@@ -69,8 +160,8 @@ export default function PodcastShow() {
               const isCurrentPlaying = currentEp?.id === ep.id && isPlaying;
               const audioAvailable = ep.audio_url || ep.external_audio_url;
               return (
+                <div key={ep.id}>
                 <motion.div
-                  key={ep.id}
                   initial={{ opacity: 0, y: 10 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
@@ -112,6 +203,11 @@ export default function PodcastShow() {
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{Math.floor((ep.duration_seconds || 0) / 60)}m</span>
                   </div>
                 </motion.div>
+                {/* Engagement section below the episode row */}
+                <div className="px-4 pb-3 -mt-1 bg-blues-surface border border-t-0 border-white/5 rounded-b-sm">
+                  <EpisodeEngagement episodeId={ep.id} />
+                </div>
+                </div>
               );
             })}
             {filtered.length === 0 && (

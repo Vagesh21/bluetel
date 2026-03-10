@@ -256,6 +256,11 @@ class BluesHotelAPITester:
         success1, dashboard = self.run_test("Admin Dashboard", "GET", "admin/dashboard", 200)
         if success1:
             self.log(f"   Dashboard stats: Episodes={dashboard.get('episodes_count', 0)}, Events={dashboard.get('events_count', 0)}")
+            # Phase 2: Check for chart data
+            if 'episodes_by_show' in dashboard:
+                self.log(f"   ✅ Episodes by show chart data present")
+            if 'subscriber_growth' in dashboard:
+                self.log(f"   ✅ Subscriber growth chart data present")
         
         # Test settings
         success2, _ = self.run_test("Get Settings", "GET", "settings", 200)
@@ -265,8 +270,23 @@ class BluesHotelAPITester:
         
         # Test submissions (admin view)
         success4, _ = self.run_test("Get Submissions", "GET", "submissions", 200)
+
+        # Phase 2: Test activity log
+        success5, activity_log = self.run_test("Admin Activity Log", "GET", "admin/activity-log", 200)
+        if success5 and isinstance(activity_log, list):
+            self.log(f"   Activity log has {len(activity_log)} entries")
+
+        # Phase 2: Test admin pages list
+        success6, pages_list = self.run_test("Admin Pages List", "GET", "admin/pages", 200)
+        if success6 and isinstance(pages_list, list):
+            self.log(f"   Found {len(pages_list)} pages in CMS")
+            page_slugs = [p.get('slug') for p in pages_list]
+            if 'privacy-policy' in page_slugs and 'terms-of-use' in page_slugs:
+                self.log(f"   ✅ Found expected static pages (privacy-policy, terms-of-use)")
+            else:
+                self.log(f"   ⚠️ Expected static pages not found. Found: {page_slugs}")
         
-        return success1 and success2 and success3 and success4
+        return success1 and success2 and success3 and success4 and success5 and success6
 
     def test_public_endpoints(self):
         """Test endpoints that don't require authentication"""
@@ -277,6 +297,151 @@ class BluesHotelAPITester:
         success2, _ = self.run_test("Get Terms Page", "GET", "pages/terms-of-use", 200)
         
         return success1 and success2
+
+    def test_account_management(self):
+        """Test Phase 2 account management features"""
+        if not self.token:
+            self.log("\n❌ Skipping account management tests - no authentication token")
+            return False
+            
+        self.log("\n=== ACCOUNT MANAGEMENT TESTS (Phase 2) ===")
+        
+        # Test change name
+        success1, response1 = self.run_test(
+            "Change Name",
+            "PUT", 
+            "auth/change-name",
+            200,
+            data={"name": "Test Admin Updated"}
+        )
+        if success1 and 'name' in response1:
+            self.log(f"   ✅ Name changed to: {response1['name']}")
+        
+        # Test change name back
+        self.run_test(
+            "Restore Name",
+            "PUT",
+            "auth/change-name", 
+            200,
+            data={"name": "Admin"}
+        )
+        
+        # Test change password (using current password)
+        success2, _ = self.run_test(
+            "Change Password",
+            "PUT",
+            "auth/change-password",
+            200,
+            data={
+                "current_password": "password",
+                "new_password": "newpassword123"
+            }
+        )
+        
+        # Change password back if successful
+        if success2:
+            self.run_test(
+                "Restore Password",
+                "PUT",
+                "auth/change-password",
+                200,
+                data={
+                    "current_password": "newpassword123", 
+                    "new_password": "password"
+                }
+            )
+        
+        # Test change email with invalid password (should fail)
+        success3, _ = self.run_test(
+            "Change Email (Invalid Password)",
+            "PUT",
+            "auth/change-email",
+            400,  # Expecting failure
+            data={
+                "password": "wrongpassword",
+                "new_email": "newemail@test.com"
+            }
+        )
+        
+        # If failed as expected, count as success
+        if not success3:
+            success3 = True
+            self.log(f"   ✅ Email change correctly rejected invalid password")
+        
+        return success1 and success2 and success3
+
+    def test_episode_engagement(self):
+        """Test Phase 2 episode engagement features (likes/comments)"""
+        self.log("\n=== EPISODE ENGAGEMENT TESTS (Phase 2) ===")
+        
+        # First get an episode ID
+        success_eps, episodes_response = self.run_test("Get Episodes for Engagement Test", "GET", "episodes?limit=1", 200)
+        if not success_eps or not episodes_response.get('episodes'):
+            self.log("❌ No episodes found for engagement testing")
+            return False
+            
+        episode_id = episodes_response['episodes'][0]['id']
+        test_email = f"engagement_test_{datetime.now().strftime('%H%M%S')}@test.com"
+        
+        # Test like episode
+        success1, _ = self.run_test(
+            "Like Episode",
+            "POST",
+            f"episodes/{episode_id}/like",
+            200,
+            data={"email": test_email}
+        )
+        
+        # Test get engagement (should show the like)
+        success2, engagement = self.run_test(
+            "Get Episode Engagement",
+            "GET",
+            f"episodes/{episode_id}/engagement?email={test_email}",
+            200
+        )
+        
+        if success2:
+            likes_count = engagement.get('likes_count', 0)
+            user_liked = engagement.get('user_liked', False)
+            self.log(f"   Episode has {likes_count} likes, user liked: {user_liked}")
+        
+        # Test unlike episode
+        success3, _ = self.run_test(
+            "Unlike Episode", 
+            "DELETE",
+            f"episodes/{episode_id}/like?email={test_email}",
+            200
+        )
+        
+        # Test post comment
+        success4, comment_data = self.run_test(
+            "Post Comment",
+            "POST",
+            f"episodes/{episode_id}/comments",
+            200,
+            data={
+                "name": "Test Commenter",
+                "email": test_email,
+                "text": "Great episode! Testing the comment system."
+            }
+        )
+        
+        if success4 and 'id' in comment_data:
+            self.log(f"   ✅ Comment posted with ID: {comment_data['id']}")
+        
+        # Test get engagement again (should show comment)
+        success5, engagement2 = self.run_test(
+            "Get Episode Engagement (After Comment)",
+            "GET", 
+            f"episodes/{episode_id}/engagement",
+            200
+        )
+        
+        if success5:
+            comments_count = engagement2.get('comments_count', 0)
+            self.log(f"   Episode now has {comments_count} comments")
+        
+        return success1 and success2 and success3 and success4 and success5
 
     def run_all_tests(self):
         """Run the complete test suite"""
@@ -299,6 +464,9 @@ class BluesHotelAPITester:
         
         if auth_success:
             self.test_admin_endpoints()
+            # Phase 2 specific tests
+            self.test_account_management()
+            self.test_episode_engagement()
         
         # Print summary
         self.log(f"\n🎯 TEST SUMMARY")

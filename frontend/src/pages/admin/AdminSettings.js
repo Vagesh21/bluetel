@@ -4,14 +4,20 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { Shield, User, Key, Mail } from 'lucide-react';
 import api from '@/lib/api';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(false);
+  const [pw, setPw] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [emailForm, setEmailForm] = useState({ password: '', new_email: '' });
+  const [nameForm, setNameForm] = useState({ name: '' });
+  const [admin, setAdmin] = useState(null);
 
   useEffect(() => {
     api.get('/settings').then(r => setSettings(r.data || {})).catch(() => {});
+    api.get('/auth/me').then(r => { setAdmin(r.data); setNameForm({ name: r.data.name || '' }); }).catch(() => {});
   }, []);
 
   const update = (key, value) => setSettings({ ...settings, [key]: value });
@@ -30,6 +36,36 @@ export default function AdminSettings() {
       await api.post('/settings/test-email');
       toast.success('Test email sent! Check your inbox.');
     } catch (err) { toast.error(err.response?.data?.detail || 'Test email failed'); }
+  };
+
+  const handleChangePassword = async () => {
+    if (pw.new_password !== pw.confirm_password) { toast.error('Passwords do not match'); return; }
+    if (pw.new_password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+    try {
+      await api.put('/auth/change-password', { current_password: pw.current_password, new_password: pw.new_password });
+      toast.success('Password changed successfully');
+      setPw({ current_password: '', new_password: '', confirm_password: '' });
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to change password'); }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!emailForm.new_email || !emailForm.password) { toast.error('Fill all fields'); return; }
+    try {
+      const res = await api.put('/auth/change-email', emailForm);
+      if (res.data.token) localStorage.setItem('admin_token', res.data.token);
+      setAdmin({ ...admin, email: res.data.email });
+      toast.success('Email changed successfully');
+      setEmailForm({ password: '', new_email: '' });
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to change email'); }
+  };
+
+  const handleChangeName = async () => {
+    if (!nameForm.name) { toast.error('Name is required'); return; }
+    try {
+      await api.put('/auth/change-name', nameForm);
+      setAdmin({ ...admin, name: nameForm.name });
+      toast.success('Name updated');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to update name'); }
   };
 
   const Field = ({ label, sKey, type = 'text', placeholder = '' }) => (
@@ -137,6 +173,61 @@ export default function AdminSettings() {
             <Button onClick={handleTestEmail} variant="outline" className="border-white/10 text-gray-400 hover:text-white rounded-none text-xs h-9 uppercase tracking-widest" data-testid="test-email-btn">
               Send Test Email
             </Button>
+          </div>
+        </div>
+
+        <Separator className="bg-white/5" />
+
+        {/* Account Management */}
+        <div>
+          <h2 className="text-amber text-sm uppercase tracking-widest mb-4 font-body font-semibold flex items-center gap-2">
+            <User className="w-4 h-4" /> Account Management
+          </h2>
+
+          {/* Change Name */}
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5 mb-4">
+            <h3 className="text-white text-sm font-semibold mb-3 flex items-center gap-2"><User className="w-3.5 h-3.5 text-gray-500" /> Display Name</h3>
+            <p className="text-xs text-gray-600 mb-3">Current: <span className="text-gray-400">{admin?.name || 'Admin'}</span></p>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <Input value={nameForm.name} onChange={(e) => setNameForm({ name: e.target.value })}
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="change-name-input" placeholder="New display name" />
+              </div>
+              <Button onClick={handleChangeName} className="bg-white/10 text-white hover:bg-white/20 rounded-none h-10 text-xs uppercase tracking-widest" data-testid="change-name-btn">
+                Update
+              </Button>
+            </div>
+          </div>
+
+          {/* Change Email */}
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5 mb-4">
+            <h3 className="text-white text-sm font-semibold mb-3 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-500" /> Change Email</h3>
+            <p className="text-xs text-gray-600 mb-3">Current: <span className="text-gray-400">{admin?.email}</span></p>
+            <div className="space-y-3">
+              <Input value={emailForm.new_email} onChange={(e) => setEmailForm({ ...emailForm, new_email: e.target.value })} type="email" placeholder="New email address"
+                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="change-email-input" />
+              <Input value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} type="password" placeholder="Confirm with current password"
+                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="change-email-password" />
+              <Button onClick={handleChangeEmail} className="bg-white/10 text-white hover:bg-white/20 rounded-none h-10 text-xs uppercase tracking-widest" data-testid="change-email-btn">
+                Change Email
+              </Button>
+            </div>
+          </div>
+
+          {/* Change Password */}
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5">
+            <h3 className="text-white text-sm font-semibold mb-3 flex items-center gap-2"><Key className="w-3.5 h-3.5 text-gray-500" /> Change Password</h3>
+            <div className="space-y-3">
+              <Input value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} type="password" placeholder="Current password"
+                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="current-password" />
+              <Input value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} type="password" placeholder="New password (min 6 characters)"
+                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="new-password" />
+              <Input value={pw.confirm_password} onChange={(e) => setPw({ ...pw, confirm_password: e.target.value })} type="password" placeholder="Confirm new password"
+                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="confirm-password" />
+              <Button onClick={handleChangePassword} className="bg-amber text-black hover:brightness-110 rounded-none h-10 text-xs uppercase tracking-widest font-bold" data-testid="change-password-btn">
+                <Shield className="w-3.5 h-3.5 mr-1" /> Change Password
+              </Button>
+            </div>
           </div>
         </div>
       </div>

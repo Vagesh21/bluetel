@@ -163,6 +163,32 @@ class CheckoutRequest(BaseModel):
     event_id: str
     origin_url: str
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class ChangeEmailRequest(BaseModel):
+    password: str
+    new_email: str
+
+class ChangeNameRequest(BaseModel):
+    name: str
+
+class PasswordResetRequestModel(BaseModel):
+    email: str
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+class CommentCreate(BaseModel):
+    name: str
+    email: str
+    text: str
+
+class LikeRequest(BaseModel):
+    email: str
+
 # ── SMTP Helper ──
 async def send_email(to_email: str, subject: str, html_body: str):
     settings = {}
@@ -210,6 +236,62 @@ async def login(req: LoginRequest, request: Request):
 @api_router.get("/auth/me")
 async def get_me(admin=Depends(get_current_admin)):
     return {"id": admin["id"], "name": admin["name"], "email": admin["email"], "role": admin["role"]}
+
+@api_router.put("/auth/change-password")
+async def change_password(req: ChangePasswordRequest, admin=Depends(get_current_admin)):
+    if not verify_password(req.current_password, admin["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    new_hash = hash_password(req.new_password)
+    await db.users.update_one({"id": admin["id"]}, {"$set": {"password_hash": new_hash}})
+    await log_activity(admin["id"], "changed password")
+    return {"message": "Password changed successfully"}
+
+@api_router.put("/auth/change-email")
+async def change_email(req: ChangeEmailRequest, admin=Depends(get_current_admin)):
+    if not verify_password(req.password, admin["password_hash"]):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+    existing = await db.users.find_one({"email": req.new_email, "id": {"$ne": admin["id"]}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already in use")
+    await db.users.update_one({"id": admin["id"]}, {"$set": {"email": req.new_email}})
+    await log_activity(admin["id"], f"changed email to {req.new_email}")
+    new_token = create_token(admin["id"], req.new_email)
+    return {"message": "Email changed successfully", "token": new_token, "email": req.new_email}
+
+@api_router.put("/auth/change-name")
+async def change_name(req: ChangeNameRequest, admin=Depends(get_current_admin)):
+    await db.users.update_one({"id": admin["id"]}, {"$set": {"name": req.name}})
+    await log_activity(admin["id"], f"changed name to {req.name}")
+    return {"message": "Name updated successfully", "name": req.name}
+
+@api_router.post("/auth/password-reset-request")
+async def password_reset_request(req: PasswordResetRequestModel):
+    user = await db.users.find_one({"email": req.email}, {"_id": 0})
+    if not user:
+        return {"message": "If that email exists, a reset link has been sent."}
+    reset_token = str(uuid.uuid4())
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    await db.password_resets.insert_one({"token": reset_token, "user_id": user["id"], "expires": expires, "used": False})
+    await send_email(req.email, "Password Reset - The Blues Hotel",
+        f"<h2>Password Reset</h2><p>Use this token to reset your password:</p><p><strong>{reset_token}</strong></p><p>This token expires in 1 hour.</p>")
+    return {"message": "If that email exists, a reset link has been sent."}
+
+@api_router.post("/auth/password-reset")
+async def password_reset(req: PasswordResetConfirm):
+    reset = await db.password_resets.find_one({"token": req.token, "used": False}, {"_id": 0})
+    if not reset:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    if datetime.fromisoformat(reset["expires"]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    new_hash = hash_password(req.new_password)
+    await db.users.update_one({"id": reset["user_id"]}, {"$set": {"password_hash": new_hash}})
+    await db.password_resets.update_one({"token": req.token}, {"$set": {"used": True}})
+    await log_activity(reset["user_id"], "reset password via email token")
+    return {"message": "Password reset successfully"}
 
 # ══════════════════════════════════════
 # SHOWS
@@ -292,6 +374,49 @@ async def delete_episode(episode_id: str, admin=Depends(get_current_admin)):
         raise HTTPException(status_code=404, detail="Episode not found")
     await log_activity(admin["id"], f"deleted episode: {episode_id}")
     return {"message": "Episode deleted"}
+
+# ── Episode Likes & Comments ──
+@api_router.post("/episodes/{episode_id}/like")
+async def like_episode(episode_id: str, data: LikeRequest):
+    ep = await db.episodes.find_one({"id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    existing = await db.episode_likes.find_one({"episode_id": episode_id, "email": data.email})
+    if existing:
+        return {"message": "Already liked", "liked": True}
+    await db.episode_likes.insert_one({"id": str(uuid.uuid4()), "episode_id": episode_id, "email": data.email, "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"message": "Liked", "liked": True}
+
+@api_router.delete("/episodes/{episode_id}/like")
+async def unlike_episode(episode_id: str, email: str):
+    await db.episode_likes.delete_one({"episode_id": episode_id, "email": email})
+    return {"message": "Unliked", "liked": False}
+
+@api_router.get("/episodes/{episode_id}/engagement")
+async def get_episode_engagement(episode_id: str, email: Optional[str] = None):
+    likes_count = await db.episode_likes.count_documents({"episode_id": episode_id})
+    user_liked = False
+    if email:
+        user_liked = await db.episode_likes.find_one({"episode_id": episode_id, "email": email}) is not None
+    comments = await db.episode_comments.find({"episode_id": episode_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    comments_count = len(comments)
+    return {"likes_count": likes_count, "user_liked": user_liked, "comments": comments, "comments_count": comments_count}
+
+@api_router.post("/episodes/{episode_id}/comments")
+async def post_comment(episode_id: str, data: CommentCreate):
+    ep = await db.episodes.find_one({"id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    comment = {"id": str(uuid.uuid4()), "episode_id": episode_id, "name": data.name, "email": data.email, "text": data.text, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.episode_comments.insert_one(comment)
+    created = await db.episode_comments.find_one({"id": comment["id"]}, {"_id": 0})
+    return created
+
+@api_router.delete("/episodes/{episode_id}/comments/{comment_id}")
+async def delete_comment(episode_id: str, comment_id: str, admin=Depends(get_current_admin)):
+    await db.episode_comments.delete_one({"id": comment_id, "episode_id": episode_id})
+    await log_activity(admin["id"], f"deleted comment {comment_id} on episode {episode_id}")
+    return {"message": "Comment deleted"}
 
 # ══════════════════════════════════════
 # EVENTS
@@ -499,11 +624,44 @@ async def admin_dashboard(admin=Depends(get_current_admin)):
     submissions_count = await db.submissions.count_documents({"read": False})
     recent_episodes = await db.episodes.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
     recent_submissions = await db.submissions.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+
+    # Chart data: episodes per show
+    shows = await db.shows.find({}, {"_id": 0}).to_list(10)
+    episodes_by_show = []
+    for show in shows:
+        count = await db.episodes.count_documents({"show_slug": show["slug"]})
+        episodes_by_show.append({"name": show["name"], "slug": show["slug"], "count": count})
+
+    # Chart data: subscriber growth (last 12 months)
+    subscriber_growth = []
+    now = datetime.now(timezone.utc)
+    for i in range(11, -1, -1):
+        month_start = (now.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
+        month_label = month_start.strftime("%b %Y")
+        count = await db.newsletter.count_documents({"subscribed_at": {"$lte": month_start.isoformat()}})
+        total_now = await db.newsletter.count_documents({"subscribed_at": {"$lte": (month_start + timedelta(days=32)).replace(day=1).isoformat()}})
+        subscriber_growth.append({"month": month_label, "count": total_now})
+
+    # Chart data: submissions over time (last 6 months)
+    submissions_chart = []
+    for i in range(5, -1, -1):
+        month_start = (now.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
+        next_month = (month_start + timedelta(days=32)).replace(day=1)
+        count = await db.submissions.count_documents({"created_at": {"$gte": month_start.isoformat(), "$lt": next_month.isoformat()}})
+        submissions_chart.append({"month": month_start.strftime("%b"), "count": count})
+
     return {
         "episodes_count": episodes_count, "events_count": events_count,
         "subscribers_count": subs_count, "unread_submissions": submissions_count,
-        "recent_episodes": recent_episodes, "recent_submissions": recent_submissions
+        "recent_episodes": recent_episodes, "recent_submissions": recent_submissions,
+        "episodes_by_show": episodes_by_show, "subscriber_growth": subscriber_growth,
+        "submissions_chart": submissions_chart
     }
+
+@api_router.get("/admin/pages")
+async def get_all_pages(admin=Depends(get_current_admin)):
+    pages = await db.pages.find({}, {"_id": 0}).to_list(100)
+    return pages
 
 @api_router.get("/admin/activity-log")
 async def get_activity_log(admin=Depends(get_current_admin)):

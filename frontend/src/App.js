@@ -21,6 +21,9 @@ import AdminEvents from "@/pages/admin/AdminEvents";
 import AdminSubmissions from "@/pages/admin/AdminSubmissions";
 import AdminSubscribers from "@/pages/admin/AdminSubscribers";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminActivityLog from "@/pages/admin/AdminActivityLog";
+import AdminPages from "@/pages/admin/AdminPages";
+import StaticPage from "@/pages/StaticPage";
 
 function App() {
   return (
@@ -39,6 +42,9 @@ function App() {
             <Route path="/community/submit-music" element={<SubmitMusic />} />
             <Route path="/community/share-a-story" element={<ShareStory />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/privacy-policy" element={<StaticPage />} />
+            <Route path="/terms-of-use" element={<StaticPage />} />
+            <Route path="/:slug" element={<StaticPage />} />
           </Route>
           {/* Admin routes */}
           <Route path="/admin/login" element={<AdminLogin />} />
@@ -48,6 +54,8 @@ function App() {
             <Route path="events" element={<AdminEvents />} />
             <Route path="submissions" element={<AdminSubmissions />} />
             <Route path="subscribers" element={<AdminSubscribers />} />
+            <Route path="activity-log" element={<AdminActivityLog />} />
+            <Route path="pages" element={<AdminPages />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
         </Routes>

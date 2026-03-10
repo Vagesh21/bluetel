@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Mic, CalendarDays, MessageSquare, Users, Settings, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Mic, CalendarDays, MessageSquare, Users, Settings, LogOut, Menu, X, FileText, Activity } from 'lucide-react';
 import api from '@/lib/api';
 
 const NAV = [
   { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
   { label: 'Episodes', path: '/admin/episodes', icon: Mic },
   { label: 'Events', path: '/admin/events', icon: CalendarDays },
+  { label: 'Pages', path: '/admin/pages', icon: FileText },
   { label: 'Submissions', path: '/admin/submissions', icon: MessageSquare },
   { label: 'Subscribers', path: '/admin/subscribers', icon: Users },
+  { label: 'Activity Log', path: '/admin/activity-log', icon: Activity },
   { label: 'Settings', path: '/admin/settings', icon: Settings },
 ];
 
