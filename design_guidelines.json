@@ -1,0 +1,168 @@
+{
+  "identity": {
+    "name": "The Blues Hotel Collective",
+    "tone": "Atmospheric, Immersive, Authentic, Moody, Electric",
+    "theme_mode": "dark",
+    "keywords": ["Smoky", "Neon", "Vintage", "Vinyl", "Storytelling"]
+  },
+  "typography": {
+    "headings": {
+      "family": "Playfair Display, serif",
+      "weights": ["400", "700", "900"],
+      "usage": "All section titles, hero text, and major callouts. Use 'italic' style for emphasis words."
+    },
+    "body": {
+      "family": "Manrope, sans-serif",
+      "weights": ["300", "400", "600"],
+      "usage": "Paragraphs, UI elements, navigation, and metadata."
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "Timestamps, dates, and technical details."
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#050505",
+      "paper": "#0A0A0A",
+      "surface": "#121212"
+    },
+    "text": {
+      "primary": "#EDEDED",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    },
+    "accent": {
+      "amber": "#FFB347",
+      "ember": "#C04000",
+      "indigo": "#1B1F3B",
+      "electric_blue": "#2E5CFF",
+      "neon_glow": "rgba(46, 92, 255, 0.5)"
+    },
+    "border": {
+      "default": "#27272A",
+      "active": "#3F3F46"
+    }
+  },
+  "visual_enhancers": {
+    "texture": "overlay-noise",
+    "glassmorphism": "backdrop-filter: blur(12px); background: rgba(10, 10, 10, 0.7); border: 1px solid rgba(255, 255, 255, 0.05);",
+    "shadows": {
+      "neon": "0 0 20px rgba(46, 92, 255, 0.15)",
+      "deep": "0 20px 40px -10px rgba(0, 0, 0, 0.8)"
+    },
+    "borders": "1px solid rgba(255, 255, 255, 0.08)"
+  },
+  "layout_strategies": {
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "grid_system": "Bento Grid (Asymmetrical)",
+    "spacing": "Relaxed (2x standard Tailwind spacing)",
+    "mobile": "Stack vertically, ensure touch targets > 44px"
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-white text-black hover:bg-gray-200 font-bold uppercase tracking-widest rounded-none",
+      "secondary": "bg-transparent border border-white/20 text-white hover:border-white/50 hover:bg-white/5 uppercase tracking-widest rounded-none",
+      "ghost": "text-gray-400 hover:text-white hover:bg-white/5"
+    },
+    "cards": {
+      "style": "bg-[#0F0F0F] border border-white/5 hover:border-white/10 transition-colors duration-300 rounded-sm",
+      "hover": "hover:shadow-[0_0_30px_rgba(0,0,0,0.5)] group"
+    },
+    "inputs": {
+      "style": "bg-black/50 border-white/10 focus:border-white/30 text-white placeholder:text-gray-600 rounded-none h-12"
+    },
+    "navigation": {
+      "style": "fixed top-0 w-full z-50 glassmorphism border-b border-white/5"
+    },
+    "podcast_player": {
+      "position": "fixed bottom-0 w-full z-50",
+      "style": "glassmorphism border-t border-white/5 backdrop-blur-xl h-20"
+    }
+  },
+  "motion": {
+    "library": "framer-motion",
+    "transitions": {
+      "default": { "duration": 0.5, "ease": [0.22, 1, 0.36, 1] },
+      "slow": { "duration": 0.8, "ease": [0.22, 1, 0.36, 1] }
+    },
+    "animations": {
+      "fade_up": { "initial": { "opacity": 0, "y": 20 }, "whileInView": { "opacity": 1, "y": 0 } },
+      "parallax": "Use useScroll and useTransform for hero images",
+      "stagger": "staggerChildren: 0.1"
+    }
+  },
+  "images": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1765741836925-5363bbaa6507?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Smoky blues bar interior",
+      "usage": "Main landing page hero background with heavy dark overlay"
+    },
+    "founder": {
+      "url": "https://theblueshotel.com.au/wp-content/uploads/2025/12/JSW0507.jpg",
+      "alt": "Kelvin Huggins Founder",
+      "usage": "About page, Founder bio section"
+    },
+    "logo": {
+      "url": "https://theblueshotel.com.au/wp-content/uploads/2026/02/Untitled.png",
+      "alt": "The Blues Hotel Logo",
+      "usage": "Header, Footer"
+    },
+    "podcasts": {
+      "main": "https://images.unsplash.com/photo-1660760509404-012ee8e96774?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Vinyl record player close up",
+      "usage": "Podcasts overview section background"
+    },
+    "events": {
+      "background": "https://images.unsplash.com/photo-1765224747205-3c9c23f0553c?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Silhouette of singer on blue stage",
+      "usage": "Events section background or card headers"
+    },
+    "about_story": {
+      "url": "https://images.pexels.com/photos/9419393/pexels-photo-9419393.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Vintage microphone silhouette",
+      "usage": "Brand story section"
+    },
+    "community": {
+      "url": "https://images.unsplash.com/photo-1770597104923-6eb427ab5209?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "People at dimly lit bar",
+      "usage": "Community/Share story section"
+    },
+    "newsletter": {
+      "url": "https://images.unsplash.com/photo-1644171131222-78eccdafadd4?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Electric guitar close up",
+      "usage": "Newsletter signup background"
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "stroke-width: 1.5px",
+    "socials": ["Instagram", "Twitter", "Facebook", "Youtube"],
+    "player": ["Play", "Pause", "SkipForward", "SkipBack", "Volume2"]
+  },
+  "accessibility": {
+    "contrast": "Ensure text is #EDEDED or brighter on dark backgrounds.",
+    "focus_states": "Visible outline: 2px solid #2E5CFF on focus.",
+    "aria_labels": "Required for all icon-only buttons (player controls)."
+  },
+  "universal_guidelines": [
+    "Always use 'Manrope' for body text and 'Playfair Display' for headings.",
+    "Do not use gradients for backgrounds; use solid dark colors + noise texture.",
+    "Use 2x padding everywhere. Give content room to breathe.",
+    "All interactive elements must have a hover state (brightness-125 or border glow).",
+    "Use 'sonner' for all toast notifications.",
+    "Mobile menu must be a full-screen overlay with large typography.",
+    "Images must have 'object-cover' and typically 'grayscale' or 'sepia' filters on hover for effect.",
+    "DO NOT use rounded-xl or rounded-2xl. Keep radii small (rounded-sm or rounded-md) or zero for a sharper look.",
+    "Ensure 'data-testid' attributes are present on all interactive elements."
+  ],
+  "instructions_to_main_agent": [
+    "1. Install 'framer-motion', 'lucide-react', 'clsx', 'tailwind-merge' if not present.",
+    "2. Configure 'tailwind.config.js' to include the custom colors and fonts defined above.",
+    "3. Set up a global CSS file that imports the fonts (Playfair Display, Manrope) from Google Fonts.",
+    "4. Create a 'Layout' component that wraps pages and includes the 'Player' component at the bottom.",
+    "5. Use the provided image URLs for specific sections. Do not use placeholders.",
+    "6. Build the 'BentoGrid' component for the Podcasts and Events pages.",
+    "7. Ensure the Admin Panel uses the same dark theme but with higher density data tables."
+  ]
+}
