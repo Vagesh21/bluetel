@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, ChevronDown } from 'lucide-react';
+import { Menu, X, ChevronDown, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PushNotificationOptIn } from './PushNotification';
 
 const NAV_LINKS = [
   { label: 'Home', path: '/' },
@@ -32,6 +33,14 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(null);
   const location = useLocation();
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem('blues_user');
+      if (u) setUser(JSON.parse(u));
+    } catch {}
+  }, [location]);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -98,6 +107,20 @@ export default function Navbar() {
               )}
             </div>
           ))}
+          {/* User + Push */}
+          <div className="flex items-center gap-3 ml-2">
+            <PushNotificationOptIn />
+            {user ? (
+              <Link to="/profile" className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors" data-testid="nav-user-profile">
+                <User className="w-4 h-4" />
+                <span className="text-xs uppercase tracking-widest">{user.name?.split(' ')[0]}</span>
+              </Link>
+            ) : (
+              <Link to="/login" className="text-gray-400 hover:text-white transition-colors text-xs uppercase tracking-widest font-body" data-testid="nav-login">
+                Sign In
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Mobile Toggle */}

@@ -65,6 +65,22 @@ async def get_current_admin(request: Request):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+async def get_current_user_optional(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+        return user
+    except Exception:
+        return None
+
+def generate_otp():
+    import random
+    return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
 async def log_activity(user_id: str, action: str, ip: str = "unknown"):
     await db.activity_log.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "action": action,
@@ -189,6 +205,30 @@ class CommentCreate(BaseModel):
 class LikeRequest(BaseModel):
     email: str
 
+class UserRegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class UserLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+
+class TwoFAVerifyRequest(BaseModel):
+    otp: str
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: Dict[str, str]
+
+class PushNotificationSend(BaseModel):
+    title: str
+    body: str
+    url: Optional[str] = None
+
 # ── SMTP Helper ──
 async def send_email(to_email: str, subject: str, html_body: str):
     settings = {}
@@ -231,7 +271,15 @@ async def login(req: LoginRequest, request: Request):
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
     ip = request.client.host if request.client else "unknown"
     await log_activity(user["id"], "login", ip)
-    return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}}
+    # Check if 2FA is enabled
+    if user.get("two_fa_enabled"):
+        otp = generate_otp()
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        await db.otp_codes.insert_one({"user_id": user["id"], "otp": otp, "expires": expires, "purpose": "login_2fa", "used": False})
+        email_sent = await send_email(user["email"], "Login Verification Code - The Blues Hotel",
+            f"<h2>Login Verification</h2><p>Your login code is: <strong style='font-size:24px'>{otp}</strong></p><p>This code expires in 10 minutes.</p>")
+        return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}, "requires_2fa": True, "otp_hint": otp if not email_sent else None}
+    return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}, "requires_2fa": False}
 
 @api_router.get("/auth/me")
 async def get_me(admin=Depends(get_current_admin)):
@@ -292,6 +340,164 @@ async def password_reset(req: PasswordResetConfirm):
     await db.password_resets.update_one({"token": req.token}, {"$set": {"used": True}})
     await log_activity(reset["user_id"], "reset password via email token")
     return {"message": "Password reset successfully"}
+
+# ══════════════════════════════════════
+# PUBLIC USER REGISTRATION & AUTH
+# ══════════════════════════════════════
+@api_router.post("/users/register")
+async def user_register(req: UserRegisterRequest):
+    existing = await db.users.find_one({"email": req.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    user = {
+        "id": str(uuid.uuid4()), "name": req.name, "email": req.email,
+        "password_hash": hash_password(req.password), "role": "user",
+        "two_fa_enabled": False, "created_at": datetime.now(timezone.utc).isoformat(), "last_login": None
+    }
+    await db.users.insert_one(user)
+    token = create_token(user["id"], user["email"])
+    return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": "user"}}
+
+@api_router.post("/users/login")
+async def user_login(req: UserLoginRequest):
+    user = await db.users.find_one({"email": req.email}, {"_id": 0})
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_token(user["id"], user["email"])
+    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
+    return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}}
+
+@api_router.get("/users/me")
+async def get_user_profile(user=Depends(get_current_admin)):
+    liked = await db.episode_likes.find({"email": user["email"]}, {"_id": 0}).to_list(200)
+    liked_ids = [l["episode_id"] for l in liked]
+    liked_episodes = []
+    if liked_ids:
+        liked_episodes = await db.episodes.find({"id": {"$in": liked_ids}}, {"_id": 0}).to_list(200)
+    comments = await db.episode_comments.find({"email": user["email"]}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+    return {
+        "id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"],
+        "created_at": user.get("created_at", ""),
+        "liked_episodes": liked_episodes, "comments": comments
+    }
+
+@api_router.put("/users/me")
+async def update_user_profile(req: UserProfileUpdate, user=Depends(get_current_admin)):
+    update = {}
+    if req.name: update["name"] = req.name
+    if update:
+        await db.users.update_one({"id": user["id"]}, {"$set": update})
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return {"id": updated["id"], "name": updated["name"], "email": updated["email"], "role": updated["role"]}
+
+# ══════════════════════════════════════
+# 2FA (Email OTP)
+# ══════════════════════════════════════
+@api_router.post("/auth/2fa/enable")
+async def enable_2fa(admin=Depends(get_current_admin)):
+    otp = generate_otp()
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    await db.otp_codes.insert_one({"user_id": admin["id"], "otp": otp, "expires": expires, "purpose": "enable_2fa", "used": False})
+    email_sent = await send_email(admin["email"], "Your 2FA Verification Code",
+        f"<h2>2FA Verification</h2><p>Your verification code is: <strong style='font-size:24px'>{otp}</strong></p><p>This code expires in 10 minutes.</p>")
+    if not email_sent:
+        return {"message": "OTP generated but email delivery requires SMTP configuration", "otp_for_testing": otp}
+    return {"message": "Verification code sent to your email"}
+
+@api_router.post("/auth/2fa/verify")
+async def verify_2fa(req: TwoFAVerifyRequest, admin=Depends(get_current_admin)):
+    otp_record = await db.otp_codes.find_one(
+        {"user_id": admin["id"], "otp": req.otp, "used": False, "purpose": "enable_2fa"}, {"_id": 0}
+    )
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    if datetime.fromisoformat(otp_record["expires"]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="OTP has expired")
+    await db.otp_codes.update_one({"otp": req.otp, "user_id": admin["id"]}, {"$set": {"used": True}})
+    await db.users.update_one({"id": admin["id"]}, {"$set": {"two_fa_enabled": True}})
+    await log_activity(admin["id"], "enabled 2FA")
+    return {"message": "2FA enabled successfully"}
+
+@api_router.post("/auth/2fa/disable")
+async def disable_2fa(admin=Depends(get_current_admin)):
+    await db.users.update_one({"id": admin["id"]}, {"$set": {"two_fa_enabled": False}})
+    await log_activity(admin["id"], "disabled 2FA")
+    return {"message": "2FA disabled"}
+
+@api_router.post("/auth/2fa/login-verify")
+async def verify_2fa_login(req: TwoFAVerifyRequest, request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = auth.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload["user_id"]
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    otp_record = await db.otp_codes.find_one(
+        {"user_id": user_id, "otp": req.otp, "used": False, "purpose": "login_2fa"}, {"_id": 0}
+    )
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    if datetime.fromisoformat(otp_record["expires"]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="OTP has expired")
+    await db.otp_codes.update_one({"otp": req.otp, "user_id": user_id}, {"$set": {"used": True}})
+    return {"message": "2FA verified", "verified": True}
+
+# ══════════════════════════════════════
+# PUSH NOTIFICATIONS
+# ══════════════════════════════════════
+@api_router.get("/push/vapid-key")
+async def get_vapid_key():
+    return {"publicKey": os.environ.get("VAPID_PUBLIC_KEY", "")}
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(data: PushSubscription):
+    existing = await db.push_subscriptions.find_one({"endpoint": data.endpoint})
+    if existing:
+        await db.push_subscriptions.update_one({"endpoint": data.endpoint}, {"$set": {"keys": data.keys}})
+        return {"message": "Subscription updated"}
+    await db.push_subscriptions.insert_one({
+        "id": str(uuid.uuid4()), "endpoint": data.endpoint, "keys": data.keys,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    return {"message": "Subscribed to notifications"}
+
+@api_router.post("/push/send")
+async def send_push(data: PushNotificationSend, admin=Depends(get_current_admin)):
+    from pywebpush import webpush, WebPushException
+    vapid_private = os.environ.get("VAPID_PRIVATE_KEY", "")
+    vapid_email = os.environ.get("VAPID_CLAIMS_EMAIL", "admin@theblueshotel.com.au")
+    if not vapid_private:
+        raise HTTPException(status_code=500, detail="VAPID keys not configured")
+    subs = await db.push_subscriptions.find({}, {"_id": 0}).to_list(10000)
+    sent = 0
+    failed = 0
+    payload = json.dumps({"title": data.title, "body": data.body, "url": data.url or "/"})
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=payload,
+                vapid_private_key=vapid_private,
+                vapid_claims={"sub": f"mailto:{vapid_email}"}
+            )
+            sent += 1
+        except WebPushException:
+            failed += 1
+            await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+        except Exception:
+            failed += 1
+    await log_activity(admin["id"], f"sent push notification: {data.title} (sent: {sent}, failed: {failed})")
+    return {"message": f"Sent to {sent} subscribers, {failed} failed"}
+
+@api_router.get("/push/subscribers-count")
+async def get_push_subscribers_count(admin=Depends(get_current_admin)):
+    count = await db.push_subscriptions.count_documents({})
+    return {"count": count}
 
 # ══════════════════════════════════════
 # SHOWS

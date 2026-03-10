@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Pencil, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import TiptapEditor from '@/components/TiptapEditor';
 
 export default function AdminPages() {
   const [pages, setPages] = useState([]);
@@ -42,13 +42,8 @@ export default function AdminPages() {
               className="bg-blues-surface border-white/10 text-white rounded-none h-10" data-testid="page-title-input" />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Content (HTML)</label>
-            <Textarea value={form.content_html} onChange={(e) => setForm({ ...form, content_html: e.target.value })} rows={16}
-              className="bg-blues-surface border-white/10 text-white rounded-none resize-none font-mono text-sm" data-testid="page-content-input" />
-          </div>
-          <div className="bg-blues-surface border border-white/5 rounded-sm p-5">
-            <p className="text-xs text-gray-500 mb-2 uppercase tracking-widest">Preview</p>
-            <div className="prose prose-sm prose-invert max-w-none text-gray-300" dangerouslySetInnerHTML={{ __html: form.content_html }} />
+            <label className="block text-sm text-gray-400 mb-2">Content</label>
+            <TiptapEditor content={form.content_html} onChange={(html) => setForm({ ...form, content_html: html })} />
           </div>
           <div className="flex gap-3">
             <Button onClick={handleSave} className="bg-amber text-black hover:brightness-110 rounded-none h-10 px-6 uppercase tracking-widest text-xs font-bold" data-testid="page-save-btn">Save Page</Button>

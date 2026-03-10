@@ -24,6 +24,9 @@ import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminActivityLog from "@/pages/admin/AdminActivityLog";
 import AdminPages from "@/pages/admin/AdminPages";
 import StaticPage from "@/pages/StaticPage";
+import UserAuth from "@/pages/UserAuth";
+import UserProfile from "@/pages/UserProfile";
+import PasswordReset from "@/pages/PasswordReset";
 
 function App() {
   return (
@@ -42,6 +45,10 @@ function App() {
             <Route path="/community/submit-music" element={<SubmitMusic />} />
             <Route path="/community/share-a-story" element={<ShareStory />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/login" element={<UserAuth />} />
+            <Route path="/register" element={<UserAuth />} />
+            <Route path="/profile" element={<UserProfile />} />
+            <Route path="/reset-password" element={<PasswordReset />} />
             <Route path="/privacy-policy" element={<StaticPage />} />
             <Route path="/terms-of-use" element={<StaticPage />} />
             <Route path="/:slug" element={<StaticPage />} />

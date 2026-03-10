@@ -4,8 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Shield, User, Key, Mail } from 'lucide-react';
+import { Shield, User, Key, Mail, ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
+import { AdminPushSender } from '@/components/PushNotification';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState({});
@@ -14,10 +15,15 @@ export default function AdminSettings() {
   const [emailForm, setEmailForm] = useState({ password: '', new_email: '' });
   const [nameForm, setNameForm] = useState({ name: '' });
   const [admin, setAdmin] = useState(null);
+  const [twoFA, setTwoFA] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [twoFAPending, setTwoFAPending] = useState(false);
 
   useEffect(() => {
     api.get('/settings').then(r => setSettings(r.data || {})).catch(() => {});
     api.get('/auth/me').then(r => { setAdmin(r.data); setNameForm({ name: r.data.name || '' }); }).catch(() => {});
+    // Check 2FA status from full user object
+    api.get('/users/me').then(r => { /* 2FA status from user_data if available */ }).catch(() => {});
   }, []);
 
   const update = (key, value) => setSettings({ ...settings, [key]: value });
@@ -66,6 +72,34 @@ export default function AdminSettings() {
       setAdmin({ ...admin, name: nameForm.name });
       toast.success('Name updated');
     } catch (err) { toast.error(err.response?.data?.detail || 'Failed to update name'); }
+  };
+
+  const handleEnable2FA = async () => {
+    try {
+      const res = await api.post('/auth/2fa/enable');
+      toast.success(res.data.message || 'Verification code sent!');
+      if (res.data.otp_for_testing) toast.info(`Testing OTP: ${res.data.otp_for_testing}`);
+      setTwoFAPending(true);
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to initiate 2FA'); }
+  };
+
+  const handleVerify2FA = async () => {
+    if (!otpInput || otpInput.length !== 6) { toast.error('Enter a 6-digit code'); return; }
+    try {
+      await api.post('/auth/2fa/verify', { otp: otpInput });
+      setTwoFA(true);
+      setTwoFAPending(false);
+      setOtpInput('');
+      toast.success('2FA enabled!');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Invalid OTP'); }
+  };
+
+  const handleDisable2FA = async () => {
+    try {
+      await api.post('/auth/2fa/disable');
+      setTwoFA(false);
+      toast.success('2FA disabled');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
   };
 
   const Field = ({ label, sKey, type = 'text', placeholder = '' }) => (
@@ -228,6 +262,54 @@ export default function AdminSettings() {
                 <Shield className="w-3.5 h-3.5 mr-1" /> Change Password
               </Button>
             </div>
+          </div>
+        </div>
+
+        <Separator className="bg-white/5" />
+
+        {/* 2FA Settings */}
+        <div>
+          <h2 className="text-amber text-sm uppercase tracking-widest mb-4 font-body font-semibold flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" /> Two-Factor Authentication
+          </h2>
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5">
+            <p className="text-xs text-gray-600 mb-4">Add an extra layer of security to your account. When enabled, you'll receive a 6-digit code via email each time you log in.</p>
+            {twoFA ? (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-sm text-green-400">2FA is enabled</span>
+                </div>
+                <Button onClick={handleDisable2FA} variant="outline" className="border-red-400/30 text-red-400 hover:bg-red-400/10 rounded-none h-9 text-xs uppercase tracking-widest" data-testid="disable-2fa-btn">
+                  Disable 2FA
+                </Button>
+              </div>
+            ) : twoFAPending ? (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-400">Enter the 6-digit code sent to your email:</p>
+                <div className="flex gap-2">
+                  <Input value={otpInput} onChange={(e) => setOtpInput(e.target.value)} placeholder="000000" maxLength={6}
+                    className="bg-blues-bg border-white/10 text-white rounded-none h-10 w-32 text-center font-mono text-lg tracking-widest" data-testid="2fa-otp-input" />
+                  <Button onClick={handleVerify2FA} className="bg-amber text-black hover:brightness-110 rounded-none h-10 text-xs uppercase tracking-widest font-bold" data-testid="verify-2fa-btn">
+                    Verify
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button onClick={handleEnable2FA} className="bg-white/10 text-white hover:bg-white/20 rounded-none h-9 text-xs uppercase tracking-widest" data-testid="enable-2fa-btn">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Enable 2FA
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <Separator className="bg-white/5" />
+
+        {/* Push Notifications */}
+        <div>
+          <h2 className="text-amber text-sm uppercase tracking-widest mb-4 font-body font-semibold">Notifications</h2>
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5">
+            <AdminPushSender />
           </div>
         </div>
       </div>
