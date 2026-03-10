@@ -1,34 +1,68 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Page transition animations */
+.page-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Parallax hero */
+.parallax-bg {
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+@media (max-width: 768px) {
+  .parallax-bg {
+    background-attachment: scroll;
+  }
 }
 
-.App-link {
-    color: #61dafb;
+/* Glow effects */
+.glow-amber {
+  box-shadow: 0 0 20px rgba(255, 179, 71, 0.15);
+}
+.glow-blue {
+  box-shadow: 0 0 20px rgba(46, 92, 255, 0.15);
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Neon text */
+.neon-amber {
+  text-shadow: 0 0 10px rgba(255, 179, 71, 0.4), 0 0 30px rgba(255, 179, 71, 0.1);
+}
+
+/* Timeline styles */
+.timeline-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, #FFB347, transparent);
+  transform: translateX(-50%);
+}
+
+@media (max-width: 768px) {
+  .timeline-line {
+    left: 20px;
+  }
+}
+
+/* Player bar */
+.player-bar {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(5, 5, 5, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Admin sidebar */
+.admin-sidebar {
+  background: #0A0A0A;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }

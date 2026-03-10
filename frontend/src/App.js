@@ -1,53 +1,58 @@
-import { useEffect } from "react";
+import React from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { PlayerProvider } from "@/contexts/PlayerContext";
+import { Toaster } from "@/components/ui/sonner";
+import Layout from "@/components/Layout";
+import Home from "@/pages/Home";
+import About from "@/pages/About";
+import Podcasts from "@/pages/Podcasts";
+import PodcastShow from "@/pages/PodcastShow";
+import WhereToListen from "@/pages/WhereToListen";
+import Events from "@/pages/Events";
+import SubmitMusic from "@/pages/SubmitMusic";
+import ShareStory from "@/pages/ShareStory";
+import Contact from "@/pages/Contact";
+import AdminLogin from "@/pages/admin/AdminLogin";
+import AdminLayout from "@/pages/admin/AdminLayout";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
+import AdminEpisodes from "@/pages/admin/AdminEpisodes";
+import AdminEvents from "@/pages/admin/AdminEvents";
+import AdminSubmissions from "@/pages/admin/AdminSubmissions";
+import AdminSubscribers from "@/pages/admin/AdminSubscribers";
+import AdminSettings from "@/pages/admin/AdminSettings";
 
 function App() {
   return (
-    <div className="App">
+    <PlayerProvider>
       <BrowserRouter>
+        <Toaster position="bottom-right" theme="dark" />
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
+          {/* Public routes */}
+          <Route element={<Layout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/podcasts" element={<Podcasts />} />
+            <Route path="/podcasts/where-to-listen" element={<WhereToListen />} />
+            <Route path="/podcasts/:slug" element={<PodcastShow />} />
+            <Route path="/events" element={<Events />} />
+            <Route path="/community/submit-music" element={<SubmitMusic />} />
+            <Route path="/community/share-a-story" element={<ShareStory />} />
+            <Route path="/contact" element={<Contact />} />
+          </Route>
+          {/* Admin routes */}
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="episodes" element={<AdminEpisodes />} />
+            <Route path="events" element={<AdminEvents />} />
+            <Route path="submissions" element={<AdminSubmissions />} />
+            <Route path="subscribers" element={<AdminSubscribers />} />
+            <Route path="settings" element={<AdminSettings />} />
           </Route>
         </Routes>
       </BrowserRouter>
-    </div>
+    </PlayerProvider>
   );
 }
 
