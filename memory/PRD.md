@@ -26,7 +26,8 @@ Rebuild The Blues Hotel Collective website (theblueshotel.com.au) from scratch â
 - Mobile-first responsive design
 
 ## What's Been Implemented (March 2026)
-### Public Pages
+
+### Phase 1 - MVP (Complete)
 - Home (hero, about snippet, latest episodes, events teaser, newsletter)
 - About (brand story, founder bio, timeline animation, shows overview)
 - Podcasts (overview + individual show pages with episode lists)
@@ -34,47 +35,39 @@ Rebuild The Blues Hotel Collective website (theblueshotel.com.au) from scratch â
 - Events (upcoming/past with Stripe checkout scaffold)
 - Community: Submit Music, Share a Story
 - Contact (form + info + social links)
+- Admin CMS: Login, Dashboard, Episode CRUD, Event CRUD, Submissions, Subscribers, Settings
+- Persistent podcast player with localStorage persistence
+- 30+ Backend API endpoints, JWT auth, file uploads
 
-### Admin CMS (/admin)
-- Login with JWT auth
-- Dashboard with stats
-- Episode CRUD with audio/image upload
-- Event CRUD with image upload
-- Submissions viewer (contact, music, stories)
-- Newsletter subscriber management with CSV export
-- Settings (site info, social links, SMTP, demo mode)
-
-### Backend API (30+ endpoints)
-- Auth, Shows, Episodes, Events, Pages, Community, Newsletter, Settings, Uploads, Payments
-
-### Key Features
-- Persistent bottom podcast player with play/pause, seek, volume, speed, expand overlay
-- localStorage persistence for player state
-- Framer Motion scroll animations throughout
-- Real content from existing website
-- Seed data: 3 shows, 3 demo episodes with Captivate.fm audio, 2 sample events
+### Phase 2 - Full Features (Complete)
+- **Account Management**: Change password, change email, change display name â€” all in Admin Settings
+- **Data Visualization**: Recharts bar chart (Episodes by Show) + line chart (Subscriber Growth) on Dashboard
+- **Activity Log**: Full admin activity log viewer at /admin/activity-log
+- **CMS Pages Editor**: Edit Privacy Policy and Terms of Use from admin panel at /admin/pages
+- **Episode Engagement**: Likes and comments on every episode (public-facing, email-based)
+- **Social Sharing**: Facebook, X/Twitter, copy link buttons on all episodes
+- **Static Pages**: Public routing for /privacy-policy and /terms-of-use
+- **Password Reset**: Backend endpoints for token-based password reset via email
 
 ## Prioritized Backlog
 ### P0 (Next)
-- Comments & likes on episodes
-- User registration (optional public accounts)
-- Push notifications (web-push)
-- 2FA via email OTP
-- Password reset flow
+- User registration (optional public accounts for managing likes/comments)
+- Push notifications (web-push for new episodes/events)
+- 2FA via email OTP (scaffold exists, needs SMTP configured)
+- Password reset UI page (backend ready)
 
 ### P1
-- Data visualization in admin dashboard (charts)
-- Activity log viewer in admin
-- Rich text editor for pages
-- Episode drag-and-drop reorder
-- Social sharing buttons on episodes/events
+- Episode drag-and-drop reorder in admin
+- Rich text editor (Tiptap/Quill) for pages instead of raw HTML
+- Admin reply to submissions via email
+- PiP detachable floating player (browser PiP API)
+- SEO meta tags and JSON-LD structured data
 
 ### P2
 - Full Stripe checkout flow with payment status polling
-- SEO meta tags and JSON-LD structured data
-- Admin reply to submissions via email
-- PiP detachable floating player (browser PiP API)
-- Privacy Policy / Terms of Use static page routing
+- "Blues of the Day" daily highlight feature
+- Episode play count tracking
+- Comment moderation in admin panel
 
 ## Next Tasks
 1. Add user registration and episode comments/likes
