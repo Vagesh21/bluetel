@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Shield, User, Key, Mail, ShieldCheck } from 'lucide-react';
+import { Shield, User, Key, Mail, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import api from '@/lib/api';
 import { AdminPushSender } from '@/components/PushNotification';
 
@@ -18,6 +18,21 @@ export default function AdminSettings() {
   const [twoFA, setTwoFA] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [twoFAPending, setTwoFAPending] = useState(false);
+  const [backupFile, setBackupFile] = useState(null);
+  const [restoreOverwrite, setRestoreOverwrite] = useState(true);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [backupMeta, setBackupMeta] = useState(null);
+  const [showPasswords, setShowPasswords] = useState({
+    smtp: false,
+    emailConfirm: false,
+    current: false,
+    next: false,
+    confirm: false,
+  });
+
+  const togglePasswordField = (field) => {
+    setShowPasswords((prev) => ({ ...prev, [field]: !prev[field] }));
+  };
 
   useEffect(() => {
     api.get('/settings').then(r => setSettings(r.data || {})).catch(() => {});
@@ -102,6 +117,45 @@ export default function AdminSettings() {
     } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
   };
 
+  const handleDownloadBackup = async () => {
+    try {
+      const res = await api.get('/admin/backup', { responseType: 'blob' });
+      const disposition = res.headers['content-disposition'] || '';
+      const filenameMatch = disposition.match(/filename=\"?([^"]+)\"?/);
+      const filename = filenameMatch?.[1] || `blues-hotel-backup-${Date.now()}.json`;
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Backup downloaded');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to download backup');
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!backupFile) {
+      toast.error('Select a backup file first');
+      return;
+    }
+    setRestoreLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', backupFile);
+      fd.append('overwrite', String(restoreOverwrite));
+      const res = await api.post('/admin/restore', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setBackupMeta(res.data.metadata || null);
+      toast.success('Backup restored successfully');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Restore failed');
+    }
+    setRestoreLoading(false);
+  };
+
   const Field = ({ label, sKey, type = 'text', placeholder = '' }) => (
     <div>
       <label className="block text-sm text-gray-400 mb-1">{label}</label>
@@ -171,6 +225,45 @@ export default function AdminSettings() {
 
         <Separator className="bg-white/5" />
 
+        {/* Backup & Restore */}
+        <div>
+          <h2 className="text-amber text-sm uppercase tracking-widest mb-4 font-body font-semibold">Backup & Restore</h2>
+          <div className="bg-blues-surface border border-white/5 rounded-sm p-5 space-y-4">
+            <div>
+              <p className="text-sm text-gray-400 mb-2">Download complete data + metadata backup as JSON.</p>
+              <Button onClick={handleDownloadBackup} variant="outline" className="border-white/10 text-gray-300 hover:text-white rounded-none text-xs h-9 uppercase tracking-widest" data-testid="download-backup-btn">
+                Download Backup
+              </Button>
+            </div>
+            <Separator className="bg-white/5" />
+            <div>
+              <p className="text-sm text-gray-400 mb-2">Restore from backup JSON file.</p>
+              <input
+                type="file"
+                accept="application/json,.json"
+                onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
+                className="text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-sm file:font-semibold file:bg-white/10 file:text-white"
+                data-testid="restore-backup-file"
+              />
+              <div className="flex items-center gap-3 mt-3">
+                <Switch checked={restoreOverwrite} onCheckedChange={setRestoreOverwrite} data-testid="restore-overwrite-toggle" />
+                <label className="text-sm text-gray-400">Overwrite existing data</label>
+              </div>
+              <Button onClick={handleRestoreBackup} disabled={restoreLoading} className="mt-3 bg-amber text-black hover:brightness-110 rounded-none h-9 text-xs uppercase tracking-widest font-bold" data-testid="restore-backup-btn">
+                {restoreLoading ? 'Restoring...' : 'Restore Backup'}
+              </Button>
+            </div>
+            {backupMeta && (
+              <div className="text-xs text-gray-500 border border-white/5 rounded-sm p-3" data-testid="backup-metadata">
+                <p>Backup from: {backupMeta.exported_at || 'unknown'}</p>
+                <p>DB Mode: {backupMeta.db_mode || 'unknown'}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <Separator className="bg-white/5" />
+
         {/* SMTP Settings */}
         <div>
           <h2 className="text-amber text-sm uppercase tracking-widest mb-4 font-body font-semibold">SMTP Email Configuration</h2>
@@ -183,13 +276,24 @@ export default function AdminSettings() {
               <Field label="SMTP Username" sKey="smtp_username" placeholder="your@email.com" />
               <div>
                 <label className="block text-sm text-gray-400 mb-1">SMTP Password</label>
-                <Input
-                  type="password"
-                  value={settings.smtp_password || ''}
-                  onChange={(e) => update('smtp_password', e.target.value)}
-                  className="bg-blues-surface border-white/10 text-white rounded-none h-10"
-                  data-testid="setting-smtp_password"
-                />
+                <div className="relative">
+                  <Input
+                    type={showPasswords.smtp ? 'text' : 'password'}
+                    value={settings.smtp_password || ''}
+                    onChange={(e) => update('smtp_password', e.target.value)}
+                    className="bg-blues-surface border-white/10 text-white rounded-none h-10 pr-10"
+                    data-testid="setting-smtp_password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => togglePasswordField('smtp')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                    aria-label={showPasswords.smtp ? 'Hide SMTP password' : 'Show SMTP password'}
+                    data-testid="setting-smtp-password-visibility"
+                  >
+                    {showPasswords.smtp ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -240,8 +344,19 @@ export default function AdminSettings() {
             <div className="space-y-3">
               <Input value={emailForm.new_email} onChange={(e) => setEmailForm({ ...emailForm, new_email: e.target.value })} type="email" placeholder="New email address"
                 className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="change-email-input" />
-              <Input value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} type="password" placeholder="Confirm with current password"
-                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="change-email-password" />
+              <div className="relative">
+                <Input value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} type={showPasswords.emailConfirm ? 'text' : 'password'} placeholder="Confirm with current password"
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-10 pr-10" data-testid="change-email-password" />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordField('emailConfirm')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                  aria-label={showPasswords.emailConfirm ? 'Hide password' : 'Show password'}
+                  data-testid="change-email-password-visibility"
+                >
+                  {showPasswords.emailConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <Button onClick={handleChangeEmail} className="bg-white/10 text-white hover:bg-white/20 rounded-none h-10 text-xs uppercase tracking-widest" data-testid="change-email-btn">
                 Change Email
               </Button>
@@ -252,12 +367,45 @@ export default function AdminSettings() {
           <div className="bg-blues-surface border border-white/5 rounded-sm p-5">
             <h3 className="text-white text-sm font-semibold mb-3 flex items-center gap-2"><Key className="w-3.5 h-3.5 text-gray-500" /> Change Password</h3>
             <div className="space-y-3">
-              <Input value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} type="password" placeholder="Current password"
-                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="current-password" />
-              <Input value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} type="password" placeholder="New password (min 6 characters)"
-                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="new-password" />
-              <Input value={pw.confirm_password} onChange={(e) => setPw({ ...pw, confirm_password: e.target.value })} type="password" placeholder="Confirm new password"
-                className="bg-blues-bg border-white/10 text-white rounded-none h-10" data-testid="confirm-password" />
+              <div className="relative">
+                <Input value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} type={showPasswords.current ? 'text' : 'password'} placeholder="Current password"
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-10 pr-10" data-testid="current-password" />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordField('current')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                  aria-label={showPasswords.current ? 'Hide current password' : 'Show current password'}
+                  data-testid="current-password-visibility"
+                >
+                  {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <div className="relative">
+                <Input value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} type={showPasswords.next ? 'text' : 'password'} placeholder="New password (min 6 characters)"
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-10 pr-10" data-testid="new-password" />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordField('next')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                  aria-label={showPasswords.next ? 'Hide new password' : 'Show new password'}
+                  data-testid="new-password-visibility"
+                >
+                  {showPasswords.next ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <div className="relative">
+                <Input value={pw.confirm_password} onChange={(e) => setPw({ ...pw, confirm_password: e.target.value })} type={showPasswords.confirm ? 'text' : 'password'} placeholder="Confirm new password"
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-10 pr-10" data-testid="confirm-password" />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordField('confirm')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                  aria-label={showPasswords.confirm ? 'Hide confirm password' : 'Show confirm password'}
+                  data-testid="confirm-password-visibility"
+                >
+                  {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <Button onClick={handleChangePassword} className="bg-amber text-black hover:brightness-110 rounded-none h-10 text-xs uppercase tracking-widest font-bold" data-testid="change-password-btn">
                 <Shield className="w-3.5 h-3.5 mr-1" /> Change Password
               </Button>

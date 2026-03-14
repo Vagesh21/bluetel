@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/api';
 
 export default function AdminSubmissions() {
   const [submissions, setSubmissions] = useState([]);
@@ -51,6 +52,12 @@ export default function AdminSubmissions() {
                 {sub.artist_name && <p className="text-xs text-amber mb-1">Artist: {sub.artist_name}</p>}
                 <p className="text-sm text-gray-400 mt-2 whitespace-pre-wrap">{sub.message}</p>
                 {sub.file_url && <a href={sub.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-electric hover:underline mt-1 block">View attached file</a>}
+                {sub.audio_url && (
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-500 mb-1">Attached audio</p>
+                    <audio controls className="w-full" src={resolveMediaUrl(sub.audio_url)} />
+                  </div>
+                )}
                 <p className="text-xs text-gray-700 mt-2 font-mono">{sub.created_at ? new Date(sub.created_at).toLocaleString() : ''}</p>
               </div>
               <div className="flex gap-2 flex-shrink-0">

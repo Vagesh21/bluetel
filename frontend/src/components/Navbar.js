@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, ChevronDown, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +32,7 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(null);
+  const closeDropdownTimer = useRef(null);
   const location = useLocation();
   const [user, setUser] = useState(null);
 
@@ -49,6 +50,28 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => { setMobileOpen(false); setOpenDropdown(null); }, [location]);
+
+  const openMenu = (label) => {
+    if (closeDropdownTimer.current) {
+      clearTimeout(closeDropdownTimer.current);
+      closeDropdownTimer.current = null;
+    }
+    setOpenDropdown(label);
+  };
+
+  const closeMenuSoon = () => {
+    if (closeDropdownTimer.current) clearTimeout(closeDropdownTimer.current);
+    closeDropdownTimer.current = setTimeout(() => {
+      setOpenDropdown(null);
+      closeDropdownTimer.current = null;
+    }, 180);
+  };
+
+  useEffect(() => () => {
+    if (closeDropdownTimer.current) {
+      clearTimeout(closeDropdownTimer.current);
+    }
+  }, []);
 
   return (
     <nav
@@ -73,8 +96,8 @@ export default function Navbar() {
             <div
               key={link.label}
               className="relative group"
-              onMouseEnter={() => link.children && setOpenDropdown(link.label)}
-              onMouseLeave={() => setOpenDropdown(null)}
+              onMouseEnter={() => link.children && openMenu(link.label)}
+              onMouseLeave={() => link.children && closeMenuSoon()}
             >
               <Link
                 to={link.path}
@@ -91,18 +114,22 @@ export default function Navbar() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 8 }}
-                  className="absolute top-full left-0 mt-2 w-56 glass rounded-sm py-2 shadow-2xl"
+                  onMouseEnter={() => openMenu(link.label)}
+                  onMouseLeave={closeMenuSoon}
+                  className="absolute top-full left-0 pt-2 w-56"
                 >
-                  {link.children.map((child) => (
-                    <Link
-                      key={child.path}
-                      to={child.path}
-                      data-testid={`nav-dropdown-${child.label.toLowerCase().replace(/['\s]+/g, '-')}`}
-                      className="block px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-                    >
-                      {child.label}
-                    </Link>
-                  ))}
+                  <div className="glass rounded-sm py-2 shadow-2xl">
+                    {link.children.map((child) => (
+                      <Link
+                        key={child.path}
+                        to={child.path}
+                        data-testid={`nav-dropdown-${child.label.toLowerCase().replace(/['\s]+/g, '-')}`}
+                        className="block px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                      >
+                        {child.label}
+                      </Link>
+                    ))}
+                  </div>
                 </motion.div>
               )}
             </div>

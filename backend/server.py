@@ -1,5 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,6 +11,7 @@ import uuid
 import bcrypt
 import jwt
 import smtplib
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -21,12 +23,16 @@ import aiofiles
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+db_name = os.environ.get('DB_NAME', 'blues_hotel')
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=1500)
+db = client[db_name]
+DB_MODE = "mongo"
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'blues-hotel-default-secret')
 JWT_ALGORITHM = "HS256"
+DEFAULT_TEST_EMAIL = "vageshanagani21@gmail.com"
+LEGACY_ADMIN_EMAIL = "admin@theblueshotel.com.au"
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 (UPLOAD_DIR / "audio").mkdir(exist_ok=True)
@@ -37,6 +43,23 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+async def ensure_database_connection():
+    global client, db, DB_MODE
+    try:
+        await client.admin.command("ping")
+        DB_MODE = "mongo"
+        return
+    except Exception as exc:
+        logger.warning(f"MongoDB unavailable, switching to in-memory DB: {exc}")
+    try:
+        from mongomock_motor import AsyncMongoMockClient
+    except Exception as exc:
+        logger.error(f"Failed to load mongomock fallback: {exc}")
+        raise
+    client = AsyncMongoMockClient()
+    db = client[db_name]
+    DB_MODE = "mock"
 
 # ── Auth Helpers ──
 def hash_password(password: str) -> str:
@@ -81,6 +104,10 @@ def generate_otp():
     import random
     return ''.join([str(random.randint(0, 9)) for _ in range(6)])
 
+def slugify(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    return cleaned.strip("-")
+
 async def log_activity(user_id: str, action: str, ip: str = "unknown"):
     await db.activity_log.insert_one({
         "id": str(uuid.uuid4()), "user_id": user_id, "action": action,
@@ -104,6 +131,7 @@ class EpisodeCreate(BaseModel):
     tags: List[str] = []
     duration_seconds: int = 0
     published: bool = True
+    published_at: Optional[str] = None
 
 class EpisodeUpdate(BaseModel):
     title: Optional[str] = None
@@ -117,6 +145,7 @@ class EpisodeUpdate(BaseModel):
     tags: Optional[List[str]] = None
     duration_seconds: Optional[int] = None
     published: Optional[bool] = None
+    published_at: Optional[str] = None
     order_index: Optional[int] = None
 
 class EventCreate(BaseModel):
@@ -166,14 +195,28 @@ class SubmitMusicRequest(BaseModel):
     email: str
     message: str = ""
     file_url: Optional[str] = None
+    audio_url: Optional[str] = None
 
 class ShareStoryRequest(BaseModel):
     name: str
     email: str
     message: str
+    audio_url: Optional[str] = None
 
 class SettingsUpdate(BaseModel):
     settings: Dict[str, str]
+
+class ShowCreate(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    description: str = ""
+    cover_art_url: Optional[str] = None
+
+class ShowUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    cover_art_url: Optional[str] = None
 
 class CheckoutRequest(BaseModel):
     event_id: str
@@ -259,12 +302,25 @@ async def send_email(to_email: str, subject: str, html_body: str):
         logger.error(f"Failed to send email: {e}")
         return False
 
+async def get_notification_email() -> str:
+    setting = await db.site_settings.find_one({"key": "contact_email"}, {"_id": 0})
+    if setting and setting.get("value"):
+        return setting["value"]
+    return DEFAULT_TEST_EMAIL
+
 # ══════════════════════════════════════
 # AUTH ROUTES
 # ══════════════════════════════════════
 @api_router.post("/auth/login")
 async def login(req: LoginRequest, request: Request):
-    user = await db.users.find_one({"email": req.email}, {"_id": 0})
+    email = req.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user and email in {DEFAULT_TEST_EMAIL, LEGACY_ADMIN_EMAIL}:
+        # Support legacy admin email during transition to the new default.
+        user = await db.users.find_one({"role": "admin"}, {"_id": 0})
+        if user:
+            await db.users.update_one({"id": user["id"]}, {"$set": {"email": DEFAULT_TEST_EMAIL}})
+            user["email"] = DEFAULT_TEST_EMAIL
     if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_token(user["id"], user["email"])
@@ -514,6 +570,75 @@ async def get_show(slug: str):
         raise HTTPException(status_code=404, detail="Show not found")
     return show
 
+@api_router.post("/shows")
+async def create_show(data: ShowCreate, admin=Depends(get_current_admin)):
+    generated_slug = slugify(data.slug or data.name)
+    if not generated_slug:
+        raise HTTPException(status_code=400, detail="Show slug is required")
+    existing = await db.shows.find_one({"slug": generated_slug}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Show slug already exists")
+    show = {
+        "id": str(uuid.uuid4()),
+        "slug": generated_slug,
+        "name": data.name.strip(),
+        "description": data.description or "",
+        "cover_art_url": data.cover_art_url or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.shows.insert_one(show)
+    created = await db.shows.find_one({"id": show["id"]}, {"_id": 0})
+    await log_activity(admin["id"], f"created show: {show['name']}")
+    return created
+
+@api_router.put("/shows/{show_id}")
+async def update_show(show_id: str, data: ShowUpdate, admin=Depends(get_current_admin)):
+    show = await db.shows.find_one({"id": show_id}, {"_id": 0})
+    if not show:
+        raise HTTPException(status_code=404, detail="Show not found")
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data")
+    if "name" in update_data:
+        update_data["name"] = update_data["name"].strip()
+    if "slug" in update_data:
+        update_data["slug"] = slugify(update_data["slug"])
+    elif "name" in update_data and show.get("slug") == slugify(show.get("name", "")):
+        update_data["slug"] = slugify(update_data["name"])
+    if "slug" in update_data and not update_data["slug"]:
+        raise HTTPException(status_code=400, detail="Show slug is required")
+    if "slug" in update_data and update_data["slug"] != show["slug"]:
+        existing = await db.shows.find_one({"slug": update_data["slug"], "id": {"$ne": show_id}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Show slug already exists")
+    await db.shows.update_one({"id": show_id}, {"$set": update_data})
+    updated = await db.shows.find_one({"id": show_id}, {"_id": 0})
+    if not updated:
+        raise HTTPException(status_code=404, detail="Show not found")
+    if "slug" in update_data or "name" in update_data or "cover_art_url" in update_data:
+        await db.episodes.update_many(
+            {"show_slug": show["slug"]},
+            {"$set": {
+                "show_slug": updated["slug"],
+                "show_name": updated["name"],
+                "show_cover_art_url": updated.get("cover_art_url", ""),
+            }},
+        )
+    await log_activity(admin["id"], f"updated show: {updated['name']}")
+    return updated
+
+@api_router.delete("/shows/{show_id}")
+async def delete_show(show_id: str, admin=Depends(get_current_admin)):
+    show = await db.shows.find_one({"id": show_id}, {"_id": 0})
+    if not show:
+        raise HTTPException(status_code=404, detail="Show not found")
+    linked_episodes = await db.episodes.count_documents({"show_slug": show["slug"]})
+    if linked_episodes > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a show with existing episodes")
+    await db.shows.delete_one({"id": show_id})
+    await log_activity(admin["id"], f"deleted show: {show['name']}")
+    return {"message": "Show deleted"}
+
 # ══════════════════════════════════════
 # EPISODES
 # ══════════════════════════════════════
@@ -548,7 +673,7 @@ async def create_episode(data: EpisodeCreate, admin=Depends(get_current_admin)):
     count = await db.episodes.count_documents({"show_slug": data.show_slug})
     episode = {
         "id": str(uuid.uuid4()), **data.model_dump(),
-        "published_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": data.published_at or datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "order_index": count,
         "show_name": show["name"],
@@ -700,11 +825,12 @@ async def submit_music(data: SubmitMusicRequest):
     submission = {
         "id": str(uuid.uuid4()), "type": "submit_music",
         "name": data.name, "artist_name": data.artist_name, "email": data.email,
-        "message": data.message, "file_url": data.file_url,
+        "message": data.message, "file_url": data.file_url, "audio_url": data.audio_url,
         "read": False, "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.submissions.insert_one(submission)
-    await send_email("admin@theblueshotel.com.au", f"New Music Submission from {data.artist_name or data.name}",
+    notification_email = await get_notification_email()
+    await send_email(notification_email, f"New Music Submission from {data.artist_name or data.name}",
         f"<h2>New Music Submission</h2><p><strong>Name:</strong> {data.name}</p><p><strong>Artist:</strong> {data.artist_name}</p><p><strong>Email:</strong> {data.email}</p><p><strong>Message:</strong> {data.message}</p>")
     return {"message": "Music submission received"}
 
@@ -712,11 +838,12 @@ async def submit_music(data: SubmitMusicRequest):
 async def share_story(data: ShareStoryRequest):
     submission = {
         "id": str(uuid.uuid4()), "type": "share_story",
-        "name": data.name, "email": data.email, "message": data.message,
+        "name": data.name, "email": data.email, "message": data.message, "audio_url": data.audio_url,
         "read": False, "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.submissions.insert_one(submission)
-    await send_email("admin@theblueshotel.com.au", f"New Story from {data.name}",
+    notification_email = await get_notification_email()
+    await send_email(notification_email, f"New Story from {data.name}",
         f"<h2>New Story Shared</h2><p><strong>Name:</strong> {data.name}</p><p><strong>Email:</strong> {data.email}</p><p><strong>Story:</strong> {data.message[:500]}</p>")
     return {"message": "Story received"}
 
@@ -729,7 +856,8 @@ async def contact_form(data: ContactRequest):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.submissions.insert_one(submission)
-    await send_email("admin@theblueshotel.com.au", f"Contact Form: {data.subject}",
+    notification_email = await get_notification_email()
+    await send_email(notification_email, f"Contact Form: {data.subject}",
         f"<h2>New Contact Message</h2><p><strong>Name:</strong> {data.name}</p><p><strong>Email:</strong> {data.email}</p><p><strong>Subject:</strong> {data.subject}</p><p><strong>Message:</strong> {data.message}</p>")
     return {"message": "Message sent"}
 
@@ -764,7 +892,8 @@ async def subscribe(data: SubscribeRequest):
         "email": data.email, "active": True, "subscribed_at": datetime.now(timezone.utc).isoformat()
     }
     await db.newsletter.insert_one(sub)
-    await send_email("admin@theblueshotel.com.au", "New Newsletter Subscriber",
+    notification_email = await get_notification_email()
+    await send_email(notification_email, "New Newsletter Subscriber",
         f"<h2>New Subscriber</h2><p>{data.first_name} {data.last_name} ({data.email})</p>")
     return {"message": "Subscribed successfully"}
 
@@ -814,10 +943,78 @@ async def get_public_settings():
 
 @api_router.post("/settings/test-email")
 async def test_email(admin=Depends(get_current_admin)):
-    result = await send_email(admin["email"], "Test Email from The Blues Hotel", "<h2>Test Email</h2><p>Your SMTP settings are working correctly.</p>")
+    test_target = await get_notification_email()
+    result = await send_email(test_target, "Test Email from The Blues Hotel", "<h2>Test Email</h2><p>Your SMTP settings are working correctly.</p>")
     if result:
-        return {"message": "Test email sent"}
+        return {"message": "Test email sent", "to": test_target}
     raise HTTPException(status_code=500, detail="Failed to send test email. Check SMTP settings.")
+
+@api_router.get("/admin/backup")
+async def backup_data(admin=Depends(get_current_admin)):
+    collection_names = await db.list_collection_names()
+    collections: Dict[str, List[dict]] = {}
+    collection_meta: Dict[str, dict] = {}
+    for name in sorted(collection_names):
+        if name.startswith("system."):
+            continue
+        docs = await db[name].find({}, {"_id": 0}).to_list(100000)
+        collections[name] = docs
+        collection_meta[name] = {"count": len(docs)}
+    payload = {
+        "metadata": {
+            "app": "The Blues Hotel Collective",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "db_mode": DB_MODE,
+            "exported_by_admin_id": admin["id"],
+            "collections": collection_meta,
+        },
+        "collections": collections,
+    }
+    filename = f"blues-hotel-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+    return JSONResponse(
+        payload,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@api_router.post("/admin/restore")
+async def restore_data(
+    file: UploadFile = File(...),
+    overwrite: bool = Form(True),
+    admin=Depends(get_current_admin),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No backup file provided")
+    raw = await file.read()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Backup file must be UTF-8 JSON")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid backup JSON")
+    if not isinstance(data, dict) or "collections" not in data:
+        raise HTTPException(status_code=400, detail="Invalid backup format")
+    collections = data["collections"]
+    if not isinstance(collections, dict):
+        raise HTTPException(status_code=400, detail="Invalid collections payload")
+
+    restored_counts: Dict[str, int] = {}
+    for name, docs in collections.items():
+        if not isinstance(name, str) or not isinstance(docs, list):
+            raise HTTPException(status_code=400, detail="Invalid collection data in backup")
+        if overwrite:
+            await db[name].delete_many({})
+        if docs:
+            await db[name].insert_many(docs)
+        restored_counts[name] = len(docs)
+    await log_activity(
+        admin["id"],
+        f"restored backup ({'overwrite' if overwrite else 'append'}) with {len(restored_counts)} collections",
+    )
+    return {
+        "message": "Backup restored",
+        "collections_restored": restored_counts,
+        "metadata": data.get("metadata", {}),
+    }
 
 # ══════════════════════════════════════
 # ADMIN DASHBOARD & ACTIVITY
@@ -877,6 +1074,23 @@ async def get_activity_log(admin=Depends(get_current_admin)):
 # ══════════════════════════════════════
 # FILE UPLOADS
 # ══════════════════════════════════════
+@api_router.post("/upload/community-audio")
+async def upload_community_audio(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in [".mp3", ".wav", ".m4a", ".ogg"]:
+        raise HTTPException(status_code=400, detail="Invalid audio format")
+    content = await file.read()
+    max_size_bytes = 20 * 1024 * 1024
+    if len(content) > max_size_bytes:
+        raise HTTPException(status_code=400, detail="Audio file exceeds 20MB limit")
+    filename = f"community-{uuid.uuid4()}{ext}"
+    filepath = UPLOAD_DIR / "audio" / filename
+    async with aiofiles.open(filepath, "wb") as f:
+        await f.write(content)
+    return {"url": f"/api/uploads/audio/{filename}", "filename": filename}
+
 @api_router.post("/upload/audio")
 async def upload_audio(file: UploadFile = File(...), admin=Depends(get_current_admin)):
     if not file.filename:
@@ -982,13 +1196,22 @@ async def stripe_webhook(request: Request):
 @api_router.post("/seed")
 async def seed_data():
     # Admin user
-    existing_admin = await db.users.find_one({"email": "admin@theblueshotel.com.au"})
+    existing_admin = await db.users.find_one({"role": "admin"})
     if not existing_admin:
         await db.users.insert_one({
-            "id": str(uuid.uuid4()), "name": "Admin", "email": "admin@theblueshotel.com.au",
+            "id": str(uuid.uuid4()), "name": "Admin", "email": DEFAULT_TEST_EMAIL,
             "password_hash": hash_password("password"), "role": "admin",
             "two_fa_enabled": False, "created_at": datetime.now(timezone.utc).isoformat(), "last_login": None
         })
+    else:
+        admin_updates = {}
+        if existing_admin.get("email") == LEGACY_ADMIN_EMAIL:
+            admin_updates["email"] = DEFAULT_TEST_EMAIL
+        # Keep startup credentials deterministic for first-time seeded admin only.
+        if existing_admin.get("last_login") is None and not verify_password("password", existing_admin["password_hash"]):
+            admin_updates["password_hash"] = hash_password("password")
+        if admin_updates:
+            await db.users.update_one({"id": existing_admin["id"]}, {"$set": admin_updates})
 
     # Shows
     shows_data = [
@@ -1079,7 +1302,7 @@ async def seed_data():
     default_settings = {
         "site_title": "The Blues Hotel Collective",
         "site_tagline": "your home for everything blues.",
-        "contact_email": "admin@theblueshotel.com.au",
+        "contact_email": DEFAULT_TEST_EMAIL,
         "contact_phone": "0482 170 801",
         "social_facebook": "https://facebook.com/theblueshotel/",
         "social_instagram": "https://instagram.com/theblueshotel/",
@@ -1114,7 +1337,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     logger.info("Starting The Blues Hotel Collective API")
+    await ensure_database_connection()
     await seed_data()
+    logger.info(f"Database mode: {DB_MODE}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

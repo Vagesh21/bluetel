@@ -76,7 +76,7 @@ class BluesHotelAPITester:
             "POST",
             "auth/login",
             200,
-            data={"email": "admin@theblueshotel.com.au", "password": "password"}
+            data={"email": "vageshanagani21@gmail.com", "password": "password"}
         )
         
         if success and 'token' in response:

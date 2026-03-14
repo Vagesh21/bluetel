@@ -15,8 +15,21 @@ const fadeUp = { initial: { opacity: 0, y: 20 }, whileInView: { opacity: 1, y: 0
 function EpisodeEngagement({ episodeId }) {
   const [engagement, setEngagement] = useState({ likes_count: 0, user_liked: false, comments: [], comments_count: 0 });
   const [showComments, setShowComments] = useState(false);
-  const [comment, setComment] = useState({ name: '', email: '', text: '' });
-  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('blues_user_email') || '');
+  const account = React.useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('blues_user') || 'null');
+    } catch {
+      return null;
+    }
+  }, []);
+  const accountEmail = account?.email || '';
+  const accountName = account?.name || '';
+  const [comment, setComment] = useState({
+    name: accountName || '',
+    email: accountEmail || '',
+    text: '',
+  });
+  const [userEmail, setUserEmail] = useState(() => accountEmail || localStorage.getItem('blues_user_email') || '');
 
   const fetchEngagement = useCallback(() => {
     api.get(`/episodes/${episodeId}/engagement?email=${encodeURIComponent(userEmail)}`).then(r => setEngagement(r.data)).catch(() => {});
@@ -25,7 +38,7 @@ function EpisodeEngagement({ episodeId }) {
   useEffect(() => { fetchEngagement(); }, [fetchEngagement]);
 
   const toggleLike = async () => {
-    if (!userEmail) { toast.error('Enter your email to like episodes'); setShowComments(true); return; }
+    if (!userEmail) { toast.error('Please sign in to like episodes'); return; }
     try {
       if (engagement.user_liked) {
         await api.delete(`/episodes/${episodeId}/like?email=${encodeURIComponent(userEmail)}`);
@@ -38,13 +51,18 @@ function EpisodeEngagement({ episodeId }) {
 
   const handleComment = async (e) => {
     e.preventDefault();
-    if (!comment.name || !comment.email || !comment.text) { toast.error('Fill all fields'); return; }
+    const payload = {
+      name: accountName || comment.name,
+      email: accountEmail || comment.email,
+      text: comment.text,
+    };
+    if (!payload.name || !payload.email || !payload.text) { toast.error('Fill all fields'); return; }
     try {
-      await api.post(`/episodes/${episodeId}/comments`, comment);
+      await api.post(`/episodes/${episodeId}/comments`, payload);
       toast.success('Comment posted');
-      localStorage.setItem('blues_user_email', comment.email);
-      setUserEmail(comment.email);
-      setComment({ ...comment, text: '' });
+      localStorage.setItem('blues_user_email', payload.email);
+      setUserEmail(payload.email);
+      setComment((prev) => ({ ...prev, text: '' }));
       fetchEngagement();
     } catch { toast.error('Failed to post comment'); }
   };
@@ -65,12 +83,18 @@ function EpisodeEngagement({ episodeId }) {
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 border-t border-white/5 pt-4">
           {/* Comment form */}
           <form onSubmit={handleComment} className="mb-4 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <Input value={comment.name} onChange={(e) => setComment({ ...comment, name: e.target.value })} placeholder="Name" required
-                className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-name-${episodeId}`} />
-              <Input value={comment.email} onChange={(e) => { setComment({ ...comment, email: e.target.value }); setUserEmail(e.target.value); }} placeholder="Email" type="email" required
-                className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-email-${episodeId}`} />
-            </div>
+            {!accountEmail ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Input value={comment.name} onChange={(e) => setComment({ ...comment, name: e.target.value })} placeholder="Name" required
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-name-${episodeId}`} />
+                <Input value={comment.email} onChange={(e) => { setComment({ ...comment, email: e.target.value }); setUserEmail(e.target.value); }} placeholder="Email" type="email" required
+                  className="bg-blues-bg border-white/10 text-white rounded-none h-8 text-xs" data-testid={`comment-email-${episodeId}`} />
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">
+                Commenting as <span className="text-amber">{accountName || accountEmail}</span>
+              </p>
+            )}
             <div className="flex gap-2">
               <Textarea value={comment.text} onChange={(e) => setComment({ ...comment, text: e.target.value })} placeholder="Write a comment..." required rows={2}
                 className="bg-blues-bg border-white/10 text-white rounded-none text-xs resize-none flex-1" data-testid={`comment-text-${episodeId}`} />

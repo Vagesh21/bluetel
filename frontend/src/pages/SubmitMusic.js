@@ -6,12 +6,30 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/api';
 
 const fadeUp = { initial: { opacity: 0, y: 30 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true }, transition: { duration: 0.6 } };
 
 export default function SubmitMusic() {
-  const [form, setForm] = useState({ name: '', artist_name: '', email: '', message: '', file_url: '' });
+  const [form, setForm] = useState({ name: '', artist_name: '', email: '', message: '', file_url: '', audio_url: '' });
   const [loading, setLoading] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+
+  const handleAudioUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAudio(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post('/upload/community-audio', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setForm((prev) => ({ ...prev, audio_url: res.data.url }));
+      toast.success('Audio file uploaded');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Audio upload failed');
+    }
+    setUploadingAudio(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,7 +37,7 @@ export default function SubmitMusic() {
     try {
       await api.post('/community/submit-music', form);
       toast.success('Music submission received! We\'ll be in touch.');
-      setForm({ name: '', artist_name: '', email: '', message: '', file_url: '' });
+      setForm({ name: '', artist_name: '', email: '', message: '', file_url: '', audio_url: '' });
     } catch {
       toast.error('Failed to submit. Please try again.');
     }
@@ -83,6 +101,22 @@ export default function SubmitMusic() {
               <Textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} rows={4}
                 className="bg-blues-surface border-white/10 focus:border-amber/30 text-white placeholder:text-gray-600 rounded-none resize-none"
                 data-testid="submit-music-message" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1.5 font-body">Upload Audio (optional)</label>
+              <input
+                type="file"
+                accept=".mp3,.wav,.m4a,.ogg"
+                onChange={handleAudioUpload}
+                className="text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-sm file:font-semibold file:bg-amber file:text-black"
+                data-testid="submit-music-audio-upload"
+              />
+              {uploadingAudio && <p className="text-xs text-amber mt-1">Uploading...</p>}
+              {form.audio_url && (
+                <div className="mt-2">
+                  <audio controls className="w-full" src={resolveMediaUrl(form.audio_url)} />
+                </div>
+              )}
             </div>
             <Button type="submit" disabled={loading}
               className="bg-white text-black hover:bg-gray-200 font-bold uppercase tracking-widest rounded-none h-12 px-8"

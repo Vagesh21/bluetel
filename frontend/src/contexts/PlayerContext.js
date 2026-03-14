@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import { resolveMediaUrl } from '@/lib/api';
 
 const PlayerContext = createContext(null);
 
@@ -43,7 +44,7 @@ export function PlayerProvider({ children }) {
       if (saved.episode) {
         setEpisode(saved.episode);
         setIsVisible(true);
-        const src = saved.episode.audio_url || saved.episode.external_audio_url;
+        const src = resolveMediaUrl(saved.episode.audio_url || saved.episode.external_audio_url);
         if (src) {
           audioRef.current.src = src;
           if (saved.currentTime) {
@@ -88,7 +89,7 @@ export function PlayerProvider({ children }) {
   }, [episode, volume, speed]);
 
   const playEpisode = useCallback((ep, list = []) => {
-    const src = ep.audio_url || ep.external_audio_url;
+    const src = resolveMediaUrl(ep.audio_url || ep.external_audio_url);
     if (!src) return;
     audioRef.current.src = src;
     audioRef.current.volume = volume;
